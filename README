@@ -23,14 +23,15 @@ So you've hacked into every wireless network in your neighborhood, the
 only problem is none of them work reliably... but what if you could
 use two (or more) wireless hotspots simultaneously?  That way if one
 link starts being unreliable or stops working, your internet will
-still operate smoothly.  In essence, it's like RAID1 for your internet
-connection or like having your own multi-homed BGP router.
+still operate smoothly.
 
-This program works by tunneling your traffic to an external swatp
+swatp raids your internet connections together like they're hard
+drives.  It works by tunneling your traffic to an external swatp
 server, which then forwards it to the internet.  Tunnel traffic is
 duplicated onto each of your wireless cards on a per-packet basis.
 Whichever packet reaches the swatp server first wins, and duplicates
-are discarded.
+are discarded.  It's like having your own BGP router except with
+proactive rather than reactive reliability.
 
 I created this program because I got frustrated with my internet
 cutting out periodically for a few seconds at a time while while
