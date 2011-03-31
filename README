@@ -1,0 +1,176 @@
+.. -*-rst-*-
+
+=======
+ swatp
+=======
+
+------------------------------------------
+ Stolen WiFi Aggregate Tunneling Protocol
+------------------------------------------
+
+:Author: Justine Tunney
+:Version: 0.1 pre-alpha
+:Platform: Linux
+:Copyright: (c) 2011 Justine Tunney
+:License: GNU AGPL 3 or later
+:Disclaimer: This program is a proof of concept
+
+
+Description
+===========
+
+So you've hacked into every wireless network in your neighborhood, the
+only problem is none of them work reliably... but what if you could
+use two (or more) wireless hotspots simultaneously?  That way if one
+link starts being unreliable or stops working, your internet will
+still operate smoothly.  In essence, it's like RAID1 for your internet
+connection or like having your own multi-homed BGP router.
+
+This program works by tunneling your traffic to an external swatp
+server, which then forwards it to the internet.  Tunnel traffic is
+duplicated onto each of your wireless cards on a per-packet basis.
+Whichever packet reaches the swatp server first wins, and duplicates
+are discarded.
+
+I created this program because I got frustrated with my internet
+cutting out periodically for a few seconds at a time while while
+raiding in World of Warcraft when my neighbor decides to download
+porn.  I could have just started paying for an internet connection,
+but fuck Comcast and Verizon.
+
+What does it mean?
+
+* Packet loss and jitter will decrease significantly.
+
+* Downloads won't go any faster.
+
+* Latency will increase because your packets need to bounce off the
+  swatp server.
+
+  For me this was about an extra 40ms round-trip time (how long it
+  takes to ping my server) but in practice probably more like 30ms
+  because the datacenter in which my server hosted has faster routes
+  to most places than the local ISPs.
+
+* Your IP address will be different since traffic is being bounced off
+  the remote tunnel endpoint.
+
+Another way to accomplish "double internet" is to use iptables
+mark-based routing that randomly delegates tcp/udp streams to specific
+routing tables configured to use separate internet connections along
+with a script that monitors latency on each link to periodically
+adjust marking probability.  The only problem with this is that I'm
+forced to reconnect to WoW if one of the links goes down... or if both
+links are sorta crappy, you're still screwed.
+
+
+Requirements
+============
+
+* A Linux machine
+
+* Two or more WiFi cards, each connected to different hotspots.
+
+  It's best if you configure each router to be on different channels.
+  Channels 1, 6, 11, and 14 do not interfere with each other.  It also
+  helps to use 802.11a (instead of b/g/n) because it's less prone to
+  interference.
+
+* Somewhere to run the remote swatp endpoint.
+
+  A dedicated server or VPS will do the trick.  If you have a friend
+  with a fast, reliable internet connection and a Linux router, that
+  will work too.  Most importantly, you want the server to be
+  geographically close to where you live as to minimize any additional
+  latency.
+
+* You need to forward port 31337 on each wireless router.
+
+* If both wireless routers use the same subnet (192.168.0.0/24) this
+  could potentially cause problems.  The simplest way to address this
+  problem is to configure the router to put your computer in the DMZ.
+
+
+Usage Example
+=============
+
+Here's a setup with two wifi cards.  Both wireless routers were
+configured to make "compy" the DMZ host (which means the router's DHCP
+server assigns compy a public IP.)
+
+Here's a diagram::
+
+    address 24.1.1.10:31337 ==========================
+    gateway 24.1.1.1                                ||
+       /\                                           ||
+       || wlan0                                     \/
+    +---------+  tun0            tun0 +----------+ eth0
+    |  compy  |- - - - - - - - - - - -|  server  | 6.6.6.6:31337 ==> INTERNET
+    +---------+  10.4.4.2    10.4.4.1 +----------+
+       || wlan1                                     /\
+       \/                                           ||
+    address 24.2.2.20:31337 ==========================
+    gateway 24.2.2.1
+
+Run the following commands on server::
+
+    sysctl -w net.ipv4.ip_forward=1
+    iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
+    swatpd 10.4.4.2/24 0.0.0.0 31337 \
+        wlan0 6.6.6.6 31337 \
+        wlan1 6.6.6.6 31337
+
+Run the following commands on compy::
+
+    swatpd 10.4.4.1/24 0.0.0.0 31337 \
+        eth0 24.1.1.10 31337 \
+        eth0 24.2.2.20 31337
+    ip route del default
+    ip route del default
+    ip route add 6.6.6.6/32 via 24.1.1.1 dev wlan0 metric 80
+    ip route add 6.6.6.6/32 via 24.2.2.1 dev wlan1 metric 80
+    ip route add default via 10.4.4.1 dev tun0 metric 90
+
+This is compy's ``/etc/network/interfaces`` file::
+
+    auto lo
+    iface lo inet loopback
+
+    auto wlan0
+    iface wlan0 inet dhcp
+        wireless-essid dd-wrt
+        wireless-key restricted DEADBEEF66
+
+    auto wlan1
+    iface wlan1 inet dhcp
+        wireless-essid linksys
+
+
+Tips
+====
+
+You'll probably want to configure dhcpcd to use OpenDNS to avoid both
+routers fighting over who gets to be the DNS server::
+
+    echo 'prepend domain-name-servers 208.67.222.222;' \
+        >>/etc/dhcp3/dhclient.conf
+
+If you're using Ubuntu, the network manager will ruin everything.  You
+should configure ``/etc/network/interfaces`` similar to what's in the
+example section and then run the following commands::
+
+    /etc/init.d/network-manager stop
+    /etc/init.d/avahi-daemon stop
+    /etc/init.d/networking restart
+
+
+ToDo
+====
+
+* Shared-secret encryption
+
+* Eliminate requirement for port forwarding
+
+* Create a mode for faster internet that stripes packets across
+  multiple wifi links rather than duplicating them.  For instance,
+  right now we only support RAID1, we also want RAID0 and RAID5.
