@@ -46,9 +46,9 @@
 typedef struct swat_header_s swat_header_t;
 
 struct swat_header_s {
-	uint32_t magic;
-	uint32_t type;
-	uint32_t seq;
+    uint32_t magic;
+    uint32_t type;
+    uint32_t seq;
 };
 
 static const int max_history = 512;
@@ -61,60 +61,60 @@ static int tun_alloc(char *dev)
     if (*dev)
         strncpy(ifr->ifr_name, dev, IFNAMSIZ);
 
-	int fd;
+    int fd;
     if ((fd = open("/dev/net/tun", O_RDWR)) < 0) {
-		perror("open(/dev/net/tun) error");
-		exit(1);
-	}
+        perror("open(/dev/net/tun) error");
+        exit(1);
+    }
 
     if (ioctl(fd, TUNSETIFF, (void *)ifr) < 0) {
-		perror("ioctl(TUNSETIFF) error");
-		exit(1);
+        perror("ioctl(TUNSETIFF) error");
+        exit(1);
     }
 
     strcpy(dev, ifr->ifr_name);
 
-	if (ioctl(fd, TUNSETPERSIST, 0) < 0) {
-		perror("ioctl(TUNSETPERSIST) error");
-		exit(1);
-	}
+    if (ioctl(fd, TUNSETPERSIST, 0) < 0) {
+        perror("ioctl(TUNSETPERSIST) error");
+        exit(1);
+    }
 
     return fd;
 }
 
 static void run(const char *fmt, ...)
 {
-	va_list ap;
-	char buf[1024 * 16];
-	va_start(ap, fmt);
-	vsnprintf(buf, sizeof(buf), fmt, ap);
-	va_end(ap);
+    va_list ap;
+    char buf[1024 * 16];
+    va_start(ap, fmt);
+    vsnprintf(buf, sizeof(buf), fmt, ap);
+    va_end(ap);
 
-	int rc = system(buf);
-	if (WIFSIGNALED(rc) != 0) {
-		fprintf(stderr, "command failed: %s\n", buf);
-		exit(1);
-	}
+    int rc = system(buf);
+    if (WIFSIGNALED(rc) != 0) {
+        fprintf(stderr, "command failed: %s\n", buf);
+        exit(1);
+    }
 }
 
 static int sockin(const char *ip, uint16_t port)
 {
-	int fd;
-	if ((fd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
-		perror("socket(SOCK_DGRAM) failed");
-		exit(1);
-	}
+    int fd;
+    if ((fd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
+        perror("socket(SOCK_DGRAM) failed");
+        exit(1);
+    }
 
-	struct sockaddr_in sa[1] = { 0 };
+    struct sockaddr_in sa[1] = { 0 };
     sa->sin_family = AF_INET;
-	sa->sin_port = htons(port);
-	sa->sin_addr.s_addr = inet_addr(ip);
-	if (bind(fd, (struct sockaddr *)sa, sizeof(sa)) < 0) {
-		perror("bind(SOCK_DGRAM) error");
-		exit(1);
-	}
+    sa->sin_port = htons(port);
+    sa->sin_addr.s_addr = inet_addr(ip);
+    if (bind(fd, (struct sockaddr *)sa, sizeof(sa)) < 0) {
+        perror("bind(SOCK_DGRAM) error");
+        exit(1);
+    }
 
-	return fd;
+    return fd;
 }
 
 /**
@@ -130,45 +130,45 @@ static int sockin(const char *ip, uint16_t port)
  */
 static int sockout(const char *dev, const char *ip, uint16_t port)
 {
-	int fd;
-	if ((fd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
-		perror("socket(SOCK_DGRAM) failed");
-		exit(1);
-	}
+    int fd;
+    if ((fd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
+        perror("socket(SOCK_DGRAM) failed");
+        exit(1);
+    }
 
-	struct sockaddr_in sa[1] = { 0 };
+    struct sockaddr_in sa[1] = { 0 };
     sa->sin_family = AF_INET;
-	sa->sin_port = htons(port);
-	sa->sin_addr.s_addr = inet_addr(ip);
-	if (connect(fd, (struct sockaddr *)sa, sizeof(sa)) < 0) {
-		perror("connect(SOCK_DGRAM) error");
-		exit(1);
-	}
+    sa->sin_port = htons(port);
+    sa->sin_addr.s_addr = inet_addr(ip);
+    if (connect(fd, (struct sockaddr *)sa, sizeof(sa)) < 0) {
+        perror("connect(SOCK_DGRAM) error");
+        exit(1);
+    }
 
-	/* i'm not sure if this actually works */
+    /* i'm not sure if this actually works */
     struct ifreq ifr[1] = { 0 };
     snprintf(ifr->ifr_name, sizeof(ifr->ifr_name), "%s", dev);
-	if (ioctl(fd, SIOCGIFINDEX, &ifr) < 0) {
-		perror("ioctl(SIOCGIFINDEX) error");
-	}
+    if (ioctl(fd, SIOCGIFINDEX, &ifr) < 0) {
+        perror("ioctl(SIOCGIFINDEX) error");
+    }
     if (setsockopt(fd, SOL_SOCKET, SO_BINDTODEVICE, (void *)ifr, sizeof(ifr)) < 0) {
-		perror("setsockopt(SO_BINDTODEVICE) error");
-	}
+        perror("setsockopt(SO_BINDTODEVICE) error");
+    }
 
-	return fd;
+    return fd;
 }
 
 static void log_packet(const char *prefix, uint8_t *ippkt, size_t len)
 {
-	if (!ippkt || len < sizeof(struct ip)) {
-		return;
-	}
-	struct ip *iphdr = (struct ip *)ippkt;
-	char ip_src[INET_ADDRSTRLEN];
-	char ip_dst[INET_ADDRSTRLEN];
-	inet_ntop(AF_INET, &(iphdr->ip_src), ip_src, sizeof(ip_src));
-	inet_ntop(AF_INET, &(iphdr->ip_dst), ip_dst, sizeof(ip_dst));
-	printf("%s %zd bytes: %s -> %s\n", prefix, len, ip_src, ip_dst);
+    if (!ippkt || len < sizeof(struct ip)) {
+        return;
+    }
+    struct ip *iphdr = (struct ip *)ippkt;
+    char ip_src[INET_ADDRSTRLEN];
+    char ip_dst[INET_ADDRSTRLEN];
+    inet_ntop(AF_INET, &(iphdr->ip_src), ip_src, sizeof(ip_src));
+    inet_ntop(AF_INET, &(iphdr->ip_dst), ip_dst, sizeof(ip_dst));
+    printf("%s %zd bytes: %s -> %s\n", prefix, len, ip_src, ip_dst);
 }
 
 /**
@@ -176,143 +176,142 @@ static void log_packet(const char *prefix, uint8_t *ippkt, size_t len)
  */
 static int make_fd_set(fd_set *fds, int fd, ...)
 {
-	va_list ap;
-	int maxfd = 0;
-	int arg = fd;
-	va_start(ap, fd);
-	FD_ZERO(fds);
-	do {
-		assert(arg >= 0);
-		FD_SET(arg, fds);
-		if (arg > maxfd) {
-			maxfd = arg;
-		}
-	} while ((arg = va_arg(ap, int)) != -1);
-	va_end(ap);
-	return maxfd;
+    va_list ap;
+    int maxfd = 0;
+    int arg = fd;
+    va_start(ap, fd);
+    FD_ZERO(fds);
+    do {
+        assert(arg >= 0);
+        FD_SET(arg, fds);
+        if (arg > maxfd) {
+            maxfd = arg;
+        }
+    } while ((arg = va_arg(ap, int)) != -1);
+    va_end(ap);
+    return maxfd;
 }
 
 static void on_close(int signum)
 {
-	is_running = false;
+    is_running = false;
 }
 
 int main(int argc, const char *argv[])
 {
-	assert(argc >= 1 + 3 + 3);
-	assert((argc - (1 + 3)) % 3 == 0);
+    assert(argc >= 1 + 3 + 3);
+    assert((argc - (1 + 3)) % 3 == 0);
 
-	const char *linkaddr = argv[1];
-	const char *listen_ip = argv[2];
-	uint16_t listen_port = (uint16_t)atoi(argv[3]);
+    const char *linkaddr = argv[1];
+    const char *listen_ip = argv[2];
+    uint16_t listen_port = (uint16_t)atoi(argv[3]);
 
-	char tundev[128] = { 0 };
-	int tunfd = tun_alloc(tundev);
-	run("ip link set %s up", tundev);
-	run("ip link set %s mtu 1300", tundev);
-	run("ip addr add %s dev %s", linkaddr, tundev);
-	int skin = sockin(listen_ip, listen_port);
+    char tundev[128] = { 0 };
+    int tunfd = tun_alloc(tundev);
+    run("ip link set %s up", tundev);
+    run("ip link set %s mtu 1300", tundev);
+    run("ip addr add %s dev %s", linkaddr, tundev);
+    int skin = sockin(listen_ip, listen_port);
 
-	int skouts[16] = {  -1, -1, -1, -1,   -1, -1, -1, -1,
-						-1, -1, -1, -1,   -1, -1, -1, -1  };
-	int n = 0;
-	int j = 4;
-	while (j < argc && n < 16) {
-		const char *dev = argv[j + 0];
-		const char *ip = argv[j + 1];
-		uint16_t port = (uint16_t)atoi(argv[j + 2]);
-		skouts[n] = sockout(dev, ip, port);
-		n += 1;
-		j += 3;
-	}
+    int skouts[16] = {  -1, -1, -1, -1,   -1, -1, -1, -1,
+                        -1, -1, -1, -1,   -1, -1, -1, -1  };
+    int n = 0;
+    int j = 4;
+    while (j < argc && n < 16) {
+        const char *dev = argv[j + 0];
+        const char *ip = argv[j + 1];
+        uint16_t port = (uint16_t)atoi(argv[j + 2]);
+        skouts[n] = sockout(dev, ip, port);
+        n += 1;
+        j += 3;
+    }
 
-	uint32_t seq = 0; /* current sequence id for egress frames */
-	int seenidx = 0;
-	int64_t seen[max_history]; /* history of ingress seqs to drop duplicates */
+    uint32_t seq = 0; /* current sequence id for egress frames */
+    int seenidx = 0;
+    int64_t seen[max_history]; /* history of ingress seqs to drop duplicates */
 
-	for (n = 0; n < max_history; n++) seen[n] = -1;
+    for (n = 0; n < max_history; n++) seen[n] = -1;
 
-	/* for storing/receiving packets */
-	uint8_t packet_memory[1024 * 64];
+    /* for storing/receiving packets */
+    uint8_t packet_memory[1024 * 64];
 
-	/* buf alias for packet including swat header */
-	uint8_t *pkt = packet_memory;
-	swat_header_t *hdr = (swat_header_t *)pkt;
-	const int maxamt = sizeof(packet_memory);
+    /* buf alias for packet including swat header */
+    uint8_t *pkt = packet_memory;
+    swat_header_t *hdr = (swat_header_t *)pkt;
+    const int maxamt = sizeof(packet_memory);
 
-	/* pointer alias for ip packet (stuff after swat header) */
-	uint8_t *ippkt = packet_memory + sizeof(swat_header_t);
-	struct ip *iphdr = (struct ip *)ippkt;
-	const int ipmaxamt = sizeof(packet_memory) - sizeof(swat_header_t);
+    /* pointer alias for ip packet (stuff after swat header) */
+    uint8_t *ippkt = packet_memory + sizeof(swat_header_t);
+    struct ip *iphdr = (struct ip *)ippkt;
+    const int ipmaxamt = sizeof(packet_memory) - sizeof(swat_header_t);
 
-	signal(SIGINT, on_close);
-	while (is_running) {
-		fd_set rfds[1];
-		int maxfd = make_fd_set(rfds, tunfd, skin, -1);
-		int rc = select(maxfd + 1, rfds, NULL, NULL, NULL);
-		if (rc < 0) {
-			if (errno == EINTR) {
-				continue; /* a signal rudely interrupted us */
-			}
-			perror("select() failed");
-			exit(1);
-		}
+    signal(SIGINT, on_close);
+    while (is_running) {
+        fd_set rfds[1];
+        int maxfd = make_fd_set(rfds, tunfd, skin, -1);
+        int rc = select(maxfd + 1, rfds, NULL, NULL, NULL);
+        if (rc < 0) {
+            if (errno == EINTR) {
+                continue; /* a signal rudely interrupted us */
+            }
+            perror("select() failed");
+            exit(1);
+        }
 
-		if (FD_ISSET(tunfd, rfds)) {
-			/* data from our network, forward to remote endpoint */
-			ssize_t ipamt = read(tunfd, ippkt, ipmaxamt);
-			if (ipamt <= 0) {
-				perror("read(tunfd) error");
-				exit(1);
-			}
-			if (ipamt > sizeof(struct ip)) {
-				log_packet(" egress", ippkt, ipamt);
-				hdr->magic = htonl(0xFeedABee);
-				hdr->type = htonl(0);
-				hdr->seq = htonl(++seq);
-				for (n = 0; n < 16 && skouts[n] >= 0; n++) {
-					write(skouts[n], pkt, sizeof(swat_header_t) + ipamt);
-				}
-			}
-		}
+        if (FD_ISSET(tunfd, rfds)) {
+            /* data from our network, forward to remote endpoint */
+            ssize_t ipamt = read(tunfd, ippkt, ipmaxamt);
+            if (ipamt <= 0) {
+                perror("read(tunfd) error");
+                exit(1);
+            }
+            if (ipamt > sizeof(struct ip)) {
+                log_packet(" egress", ippkt, ipamt);
+                hdr->magic = htonl(0xFeedABee);
+                hdr->type = htonl(0);
+                hdr->seq = htonl(++seq);
+                for (n = 0; n < 16 && skouts[n] >= 0; n++) {
+                    write(skouts[n], pkt, sizeof(swat_header_t) + ipamt);
+                }
+            }
+        }
 
-		if (FD_ISSET(skin, rfds)) {
-			/* data from remote endpoint, forward to our network */
-			ssize_t amt = read(skin, pkt, maxamt);
-			if (amt <= 0) {
-				perror("read(skin) error");
-				exit(1);
-			}
-			if (amt > sizeof(swat_header_t) + sizeof(struct ip)) {
-				bool drop = false;
-				int64_t rseq = (int64_t)ntohl(hdr->seq);
-				for (n = 0; n < max_history; n++) {
-					if (rseq == seen[n]) {
-						drop = true;
-						break;
-					}
-				}
-				if (!drop) {
-					seen[seenidx] = rseq;
-					if (++seenidx == max_history) {
-						seenidx = 0;
-					}
-					const size_t ipamt = amt - sizeof(swat_header_t);
-					log_packet("ingress", ippkt, ipamt);
-					write(tunfd, ippkt, ipamt);
-				}
-			}
-		}
-	}
+        if (FD_ISSET(skin, rfds)) {
+            /* data from remote endpoint, forward to our network */
+            ssize_t amt = read(skin, pkt, maxamt);
+            if (amt <= 0) {
+                perror("read(skin) error");
+                exit(1);
+            }
+            if (amt > sizeof(swat_header_t) + sizeof(struct ip)) {
+                bool drop = false;
+                int64_t rseq = (int64_t)ntohl(hdr->seq);
+                for (n = 0; n < max_history; n++) {
+                    if (rseq == seen[n]) {
+                        drop = true;
+                        break;
+                    }
+                }
+                if (!drop) {
+                    seen[seenidx] = rseq;
+                    if (++seenidx == max_history) {
+                        seenidx = 0;
+                    }
+                    const size_t ipamt = amt - sizeof(swat_header_t);
+                    log_packet("ingress", ippkt, ipamt);
+                    write(tunfd, ippkt, ipamt);
+                }
+            }
+        }
+    }
 
-	fprintf(stderr, "shutting down\n");
-	exit(0);
+    fprintf(stderr, "shutting down\n");
+    exit(0);
 }
 
 /* For Emacs:
  * Local Variables:
- * indent-tabs-mode:t
- * tab-width:4
+ * indent-tabs-mode:nil
  * c-basic-offset:4
  * c-file-style: nil
  * End:
