@@ -43,10 +43,7 @@
 #define max(a, b) (((a) > (b)) ? (a) : (b))
 #define min(a, b) (((a) < (b)) ? (a) : (b))
 
-enum swatp_mode {
-    reliable,
-    fast
-};
+enum swatp_mode { reliable, fast };
 
 struct swatp {
     uint32_t magic;
@@ -54,10 +51,20 @@ struct swatp {
     uint32_t seq;
 };
 
-static const int history_max = 512;
+struct tunhdr {
+    uint16_t flags;
+    uint16_t proto;   /* http://en.wikipedia.org/wiki/EtherType */
+    uint32_t mystery;
+};
+
 static bool is_running = true;
-static const int mtu = 1500 - sizeof(struct iphdr) - sizeof(struct udphdr) -
-    sizeof(struct swatp);
+
+static const uint16_t proto_ipv4 = 0x0800;
+static const uint16_t proto_ipv6 = 0x86DD;
+
+static const int history_max = 512;
+static const int mtu = (1500 - sizeof(struct iphdr) - sizeof(struct udphdr) -
+                        sizeof(struct swatp) - sizeof(struct tunhdr));
 
 static inline bool empty(const char *s)
 {
@@ -189,17 +196,13 @@ static int sockout(const char *dev, const char *ip, uint16_t port)
     return fd;
 }
 
-static void log_packet(const char *prefix, uint8_t *ippkt, size_t len)
+static void log_packet(const char *prefix, struct iphdr *iphdr)
 {
-    if (!ippkt || len < sizeof(struct iphdr)) {
-        return;
-    }
-    struct iphdr *iphdr = (struct iphdr *)ippkt;
     char ip_src[INET_ADDRSTRLEN];
     char ip_dst[INET_ADDRSTRLEN];
     inet_ntop(AF_INET, &(iphdr->saddr) - 1, ip_src, sizeof(ip_src));
     inet_ntop(AF_INET, &(iphdr->daddr) - 1, ip_dst, sizeof(ip_dst));
-    printf("%s %zd bytes: %s -> %s\n", prefix, len, ip_src, ip_dst);
+    printf("%s %s -> %s\n", prefix, ip_src, ip_dst);
 }
 
 /**
@@ -282,15 +285,24 @@ int main(int argc, const char *argv[])
 
     uint8_t memory[1024 * 64];
 
-    /* alias for packet including swat header */
+    /* memory alias for packet including swat header */
     uint8_t *pkt = memory;
     struct swatp *hdr = (struct swatp *)pkt;
     const int maxamt = sizeof(memory);
+    const int minamt = (sizeof(struct swatp) + sizeof(struct tunhdr) +
+                        sizeof(struct iphdr));
 
-    /* alias for ip packet (stuff after swat header) */
-    uint8_t *ippkt = memory + sizeof(struct swatp);
-    /* struct iphdr *iphdr = (struct iphdr *)ippkt; */
-    const int ipmaxamt = sizeof(memory) - sizeof(struct swatp);
+    /* memory alias for tun/tap frame */
+    uint8_t *tunpkt = pkt + sizeof(struct swatp);
+    struct tunhdr *tunhdr = (struct tunhdr *)tunpkt;
+    const int tunmaxamt = maxamt - sizeof(struct swatp);
+    const int tunminamt = sizeof(struct tunhdr) + sizeof(struct iphdr);
+
+    /* memory alias for ip packet */
+    uint8_t *ippkt = tunpkt + sizeof(struct tunhdr);
+    struct iphdr *iphdr = (struct iphdr *)ippkt;
+    /* const int ipmaxamt = tunmaxamt - sizeof(struct tunhdr); */
+    /* const int ipminamt = sizeof(struct iphdr); */
 
     signal(SIGINT, on_close);
     while (is_running) {
@@ -307,17 +319,18 @@ int main(int argc, const char *argv[])
 
         if (FD_ISSET(tunfd, rfds)) {
             /* data from our network, forward to remote endpoint */
-            ssize_t ipamt = read(tunfd, ippkt, ipmaxamt);
-            if (ipamt <= 0) {
+            const ssize_t tunamt = read(tunfd, tunpkt, tunmaxamt);
+            /* const ssize_t ipamt = tunamt - sizeof(struct tunhdr); */
+            if (tunamt <= 0) {
                 perror("read(tunfd) error");
                 exit(1);
             }
-            if (ipamt > sizeof(struct iphdr)) {
-                log_packet(" egress", ippkt, ipamt);
+            if (tunamt > tunminamt && ntohs(tunhdr->proto) == proto_ipv4) {
+                log_packet(" egress", iphdr);
                 hdr->magic = htonl(0xFeedABee);
                 hdr->type = htonl(0);
                 hdr->seq = htonl(++seq);
-                const int amt = sizeof(struct swatp) + ipamt;
+                const int amt = sizeof(struct swatp) + tunamt;
                 switch (mode) {
                 case reliable:
                     for (n = 0; n < skouts_len; n++) {
@@ -339,12 +352,14 @@ int main(int argc, const char *argv[])
 
         if (FD_ISSET(skin, rfds)) {
             /* data from remote endpoint, forward to our network */
-            ssize_t amt = read(skin, pkt, maxamt);
+            const ssize_t amt = read(skin, pkt, maxamt);
+            const ssize_t tunamt = amt - sizeof(struct swatp);
+            /* const ssize_t ipamt = tunamt - sizeof(struct tunhdr); */
             if (amt <= 0) {
                 perror("read(skin) error");
                 exit(1);
             }
-            if (amt > sizeof(struct swatp) + sizeof(struct iphdr)) {
+            if (amt > minamt) {
                 bool drop = false;
                 const int64_t rseq = (int64_t)ntohl(hdr->seq);
                 for (n = 0; n < history_max; n++) {
@@ -358,9 +373,8 @@ int main(int argc, const char *argv[])
                     if (++seenidx == history_max) {
                         seenidx = 0;
                     }
-                    const size_t ipamt = amt - sizeof(struct swatp);
-                    log_packet("ingress", ippkt, ipamt);
-                    write(tunfd, ippkt, ipamt);
+                    log_packet("ingress", iphdr);
+                    write(tunfd, tunpkt, tunamt);
                 }
             }
         }
