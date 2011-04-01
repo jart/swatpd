@@ -43,15 +43,18 @@
 #define max(a, b) (((a) > (b)) ? (a) : (b))
 #define min(a, b) (((a) < (b)) ? (a) : (b))
 
-typedef struct swat_header_s swat_header_t;
+enum swatp_mode {
+    reliable,
+    fast
+};
 
-struct swat_header_s {
+struct swatp {
     uint32_t magic;
     uint32_t type;
     uint32_t seq;
 };
 
-static const int max_history = 512;
+static const int history_max = 512;
 static bool is_running = true;
 
 static inline bool empty(const char *s)
@@ -70,10 +73,13 @@ static inline bool strmatch(const char *s1, const char *s2)
 
 static int tun_alloc(char *dev)
 {
-    struct ifreq ifr[1] = { 0 };
+    assert(dev);
+
+    struct ifreq ifr[1] = {{{{ 0 }}}};
     ifr->ifr_flags = IFF_TUN;
-    if (*dev)
+    if (*dev) {
         strncpy(ifr->ifr_name, dev, IFNAMSIZ);
+    }
 
     int fd;
     if ((fd = open("/dev/net/tun", O_RDWR)) < 0) {
@@ -119,7 +125,7 @@ static int sockin(const char *ip, uint16_t port)
         exit(1);
     }
 
-    struct sockaddr_in sa[1] = { 0 };
+    struct sockaddr_in sa[1] = {{ 0 }};
     sa->sin_family = AF_INET;
     sa->sin_port = htons(port);
     sa->sin_addr.s_addr = inet_addr(ip);
@@ -213,7 +219,7 @@ static int sockout(const char *dev, const char *ip, uint16_t port)
         exit(1);
     }
 
-    struct sockaddr_in sa[1] = { 0 };
+    struct sockaddr_in sa[1] = {{ 0 }};
     sa->sin_family = AF_INET;
     sa->sin_port = htons(port);
     sa->sin_addr.s_addr = inet_addr(ip);
@@ -223,7 +229,7 @@ static int sockout(const char *dev, const char *ip, uint16_t port)
     }
 
     /* i'm not sure if this actually works */
-    struct ifreq ifr[1] = { 0 };
+    struct ifreq ifr[1] = {{{{ 0 }}}};
     snprintf(ifr->ifr_name, sizeof(ifr->ifr_name), "%s", dev);
     if (ioctl(fd, SIOCGIFINDEX, &ifr) < 0) {
         perror("ioctl(SIOCGIFINDEX) error");
@@ -275,30 +281,46 @@ static void on_close(int signum)
     is_running = false;
 }
 
+static enum swatp_mode swatp_mode(const char *smode)
+{
+    if (strmatch(smode, "reliable")) {
+        return reliable;
+    } else if (strmatch(smode, "fast")) {
+        return fast;
+    } else {
+        fprintf(stderr, "invalid mode: %s\n", smode);
+        exit(1);
+    }
+}
+
 int main(int argc, const char *argv[])
 {
-    assert(argc >= 1 + 3 + 3);
-    assert((argc - (1 + 3)) % 3 == 0);
+    assert(argc >= 1 + 4 + 3);
+    assert((argc - (1 + 4)) % 3 == 0);
 
-    const char *linkaddr = argv[1];
-    const char *listen_ip = argv[2];
-    uint16_t listen_port = (uint16_t)atoi(argv[3]);
+    const enum swatp_mode mode = swatp_mode(argv[1]);
+    const char *linkaddr = argv[2];
+    const char *listen_ip = argv[3];
+    const uint16_t listen_port = (uint16_t)atoi(argv[4]);
 
+    /* create tunnel device */
     char tundev[128] = { 0 };
-    int tunfd = tun_alloc(tundev);
+    const int tunfd = tun_alloc(tundev);
     run("ip link set %s up", tundev);
     run("ip link set %s mtu 1300", tundev);
     run("ip addr add %s dev %s", linkaddr, tundev);
-    int skin = sockin(listen_ip, listen_port);
+    const int skin = sockin(listen_ip, listen_port);
 
-    int skouts[16] = {  -1, -1, -1, -1,   -1, -1, -1, -1,
-                        -1, -1, -1, -1,   -1, -1, -1, -1  };
+    /* create array of transmit sockets */
+    int j = 1 + 4;
+    const int skouts_len = (argc - j) / 3;
+    int skouts[skouts_len];
+    int skouts_robin = 0; /* for fast mode */
     int n = 0;
-    int j = 4;
     while (j < argc && n < 16) {
         const char *dev = argv[j + 0];
         const char *ip = argv[j + 1];
-        uint16_t port = (uint16_t)atoi(argv[j + 2]);
+        const uint16_t port = (uint16_t)atoi(argv[j + 2]);
         skouts[n] = sockout(dev, ip, port);
         n += 1;
         j += 3;
@@ -306,22 +328,22 @@ int main(int argc, const char *argv[])
 
     uint32_t seq = 0; /* current sequence id for egress frames */
     int seenidx = 0;
-    int64_t seen[max_history]; /* history of ingress seqs to drop duplicates */
+    int64_t seen[history_max]; /* history of ingress seqs to drop duplicates */
+    for (n = 0; n < history_max; n++) {
+        seen[n] = -1;
+    }
 
-    for (n = 0; n < max_history; n++) seen[n] = -1;
+    uint8_t memory[1024 * 64];
 
-    /* for storing/receiving packets */
-    uint8_t packet_memory[1024 * 64];
+    /* alias for packet including swat header */
+    uint8_t *pkt = memory;
+    struct swatp *hdr = (struct swatp *)pkt;
+    const int maxamt = sizeof(memory);
 
-    /* buf alias for packet including swat header */
-    uint8_t *pkt = packet_memory;
-    swat_header_t *hdr = (swat_header_t *)pkt;
-    const int maxamt = sizeof(packet_memory);
-
-    /* pointer alias for ip packet (stuff after swat header) */
-    uint8_t *ippkt = packet_memory + sizeof(swat_header_t);
-    struct ip *iphdr = (struct ip *)ippkt;
-    const int ipmaxamt = sizeof(packet_memory) - sizeof(swat_header_t);
+    /* alias for ip packet (stuff after swat header) */
+    uint8_t *ippkt = memory + sizeof(struct swatp);
+    /* struct ip *iphdr = (struct ip *)ippkt; */
+    const int ipmaxamt = sizeof(memory) - sizeof(struct swatp);
 
     signal(SIGINT, on_close);
     while (is_running) {
@@ -332,7 +354,7 @@ int main(int argc, const char *argv[])
             if (errno == EINTR) {
                 continue; /* a signal rudely interrupted us */
             }
-            perror("select() failed");
+            perror("select() error");
             exit(1);
         }
 
@@ -348,8 +370,22 @@ int main(int argc, const char *argv[])
                 hdr->magic = htonl(0xFeedABee);
                 hdr->type = htonl(0);
                 hdr->seq = htonl(++seq);
-                for (n = 0; n < 16 && skouts[n] >= 0; n++) {
-                    write(skouts[n], pkt, sizeof(swat_header_t) + ipamt);
+                const int amt = sizeof(struct swatp) + ipamt;
+                switch (mode) {
+                case reliable:
+                    for (n = 0; n < skouts_len; n++) {
+                        if (write(skouts[n], pkt, amt) != amt) {
+                            perror("write() error");
+                        }
+                    }
+                    break;
+                case fast:
+                    if (write(skouts[skouts_robin], pkt, amt) != amt) {
+                        perror("write() error");
+                    }
+                    skouts_robin += 1;
+                    skouts_robin = skouts_robin % skouts_len;
+                    break;
                 }
             }
         }
@@ -361,10 +397,10 @@ int main(int argc, const char *argv[])
                 perror("read(skin) error");
                 exit(1);
             }
-            if (amt > sizeof(swat_header_t) + sizeof(struct ip)) {
+            if (amt > sizeof(struct swatp) + sizeof(struct ip)) {
                 bool drop = false;
-                int64_t rseq = (int64_t)ntohl(hdr->seq);
-                for (n = 0; n < max_history; n++) {
+                const int64_t rseq = (int64_t)ntohl(hdr->seq);
+                for (n = 0; n < history_max; n++) {
                     if (rseq == seen[n]) {
                         drop = true;
                         break;
@@ -372,10 +408,10 @@ int main(int argc, const char *argv[])
                 }
                 if (!drop) {
                     seen[seenidx] = rseq;
-                    if (++seenidx == max_history) {
+                    if (++seenidx == history_max) {
                         seenidx = 0;
                     }
-                    const size_t ipamt = amt - sizeof(swat_header_t);
+                    const size_t ipamt = amt - sizeof(struct swatp);
                     log_packet("ingress", ippkt, ipamt);
                     write(tunfd, ippkt, ipamt);
                 }

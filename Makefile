@@ -1,8 +1,20 @@
 
+CFLAGS  = -g -O0 --std=gnu99 -D_GNU_SOURCE -Wall -Werror -pedantic
+LDFLAGS =
+
 all: swatpd test
 
-swatpd: src/swatpd.c
-	gcc -g -O0 --std=gnu99 -o swatpd src/swatpd.c
+swatpd: swatpd.o
+swatpd.o: src/swatpd.c
 
-test: src/test.c
-	gcc -g -O0 --std=gnu99 -o test src/test.c
+test: test.o
+test.o: src/test.c
+
+clean:
+	rm -f *.o swatpd test
+
+install:
+	install -c -m 755 swatpd /usr/local/bin
+
+%: %.o       ; gcc $(CFLAGS) -o $@ $^ $(LDFLAGS)
+%.o: src/%.c ; gcc $(CFLAGS) -o $@ -c $^
