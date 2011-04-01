@@ -245,6 +245,8 @@ static enum swatp_mode swatp_mode(const char *smode)
 
 int main(int argc, const char *argv[])
 {
+    srand(time(NULL));
+
     assert(argc >= 1 + 4 + 3);
     assert((argc - (1 + 4)) % 3 == 0);
 
