@@ -101,8 +101,7 @@ server assigns compy a public IP.)
 
 Here's a diagram::
 
-    address 24.1.1.10:31337 ==========================
-    gateway 24.1.1.1                                ||
+    24.1.1.10:31337 ==================================
        /\                                           ||
        || wlan0                                     \/
     +---------+  tun0            tun0 +----------+ eth0
@@ -110,8 +109,7 @@ Here's a diagram::
     +---------+  10.4.4.2    10.4.4.1 +----------+
        || wlan1                                     /\
        \/                                           ||
-    address 24.2.2.20:31337 ==========================
-    gateway 24.2.2.1
+    24.2.2.20:31337 ==================================
 
 Run the following commands on server::
 
@@ -126,10 +124,6 @@ Run the following commands on compy::
     swatpd reliable 10.4.4.1/24 0.0.0.0 31337 \
         eth0 24.1.1.10 31337 \
         eth0 24.2.2.20 31337
-    ip route del default
-    ip route del default
-    ip route add 6.6.6.6/32 via 24.1.1.1 dev wlan0 metric 80
-    ip route add 6.6.6.6/32 via 24.2.2.1 dev wlan1 metric 80
     ip route add default via 10.4.4.1 dev tun0 metric 90
 
 This is compy's ``/etc/network/interfaces`` file::

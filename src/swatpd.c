@@ -56,6 +56,8 @@ struct swatp {
 
 static const int history_max = 512;
 static bool is_running = true;
+static const int mtu = 1500 - sizeof(struct iphdr) - sizeof(struct udphdr) -
+    sizeof(struct swatp);
 
 static inline bool empty(const char *s)
 {
@@ -140,9 +142,18 @@ static int sockin(const char *ip, uint16_t port)
 /**
  * Creates a udp socket for sending ip traffic to remote endpoint
  *
- * The socket is connected to the remote endpoint so you can use
+ * The socket is "connected" to the remote endpoint so you can use
  * send() instead of sendto().
  *
+ * We use Linux's SO_BINDTODEVICE feature to bind the socket to a
+ * specific ethernet device.  This means our packets will skip the
+ * routing table entirely and use arp to figure out the next ethernet
+ * hop.
+ *
+ * This is important because once the tunnel is activated we'll change
+ * the default route to the tunnel, so we don't want to tunnel our
+ * tunnel traffic inside our tunnel dawg.
+ * 
  * @param dev   Required name of network device to use (e.g. eth0, wlan0)
  * @param ip    Required remote IP address or hostname
  * @param port  Required remote port number
@@ -165,7 +176,6 @@ static int sockout(const char *dev, const char *ip, uint16_t port)
         exit(1);
     }
 
-    /* i'm not sure if this actually works */
     struct ifreq ifr[1] = {{{{ 0 }}}};
     snprintf(ifr->ifr_name, sizeof(ifr->ifr_name), "%s", dev);
     if (ioctl(fd, SIOCGIFINDEX, &ifr) < 0) {
@@ -181,14 +191,14 @@ static int sockout(const char *dev, const char *ip, uint16_t port)
 
 static void log_packet(const char *prefix, uint8_t *ippkt, size_t len)
 {
-    if (!ippkt || len < sizeof(struct ip)) {
+    if (!ippkt || len < sizeof(struct iphdr)) {
         return;
     }
-    struct ip *iphdr = (struct ip *)ippkt;
+    struct iphdr *iphdr = (struct iphdr *)ippkt;
     char ip_src[INET_ADDRSTRLEN];
     char ip_dst[INET_ADDRSTRLEN];
-    inet_ntop(AF_INET, &(iphdr->ip_src), ip_src, sizeof(ip_src));
-    inet_ntop(AF_INET, &(iphdr->ip_dst), ip_dst, sizeof(ip_dst));
+    inet_ntop(AF_INET, &(iphdr->saddr) - 1, ip_src, sizeof(ip_src));
+    inet_ntop(AF_INET, &(iphdr->daddr) - 1, ip_dst, sizeof(ip_dst));
     printf("%s %zd bytes: %s -> %s\n", prefix, len, ip_src, ip_dst);
 }
 
@@ -244,7 +254,7 @@ int main(int argc, const char *argv[])
     char tundev[128] = { 0 };
     const int tunfd = tun_alloc(tundev);
     run("ip link set %s up", tundev);
-    run("ip link set %s mtu 1300", tundev);
+    run("ip link set %s mtu %d", tundev, mtu);
     run("ip addr add %s dev %s", linkaddr, tundev);
     const int skin = sockin(listen_ip, listen_port);
 
@@ -279,7 +289,7 @@ int main(int argc, const char *argv[])
 
     /* alias for ip packet (stuff after swat header) */
     uint8_t *ippkt = memory + sizeof(struct swatp);
-    /* struct ip *iphdr = (struct ip *)ippkt; */
+    /* struct iphdr *iphdr = (struct iphdr *)ippkt; */
     const int ipmaxamt = sizeof(memory) - sizeof(struct swatp);
 
     signal(SIGINT, on_close);
@@ -302,7 +312,7 @@ int main(int argc, const char *argv[])
                 perror("read(tunfd) error");
                 exit(1);
             }
-            if (ipamt > sizeof(struct ip)) {
+            if (ipamt > sizeof(struct iphdr)) {
                 log_packet(" egress", ippkt, ipamt);
                 hdr->magic = htonl(0xFeedABee);
                 hdr->type = htonl(0);
@@ -334,7 +344,7 @@ int main(int argc, const char *argv[])
                 perror("read(skin) error");
                 exit(1);
             }
-            if (amt > sizeof(struct swatp) + sizeof(struct ip)) {
+            if (amt > sizeof(struct swatp) + sizeof(struct iphdr)) {
                 bool drop = false;
                 const int64_t rseq = (int64_t)ntohl(hdr->seq);
                 for (n = 0; n < history_max; n++) {
