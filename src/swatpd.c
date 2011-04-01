@@ -54,6 +54,20 @@ struct swat_header_s {
 static const int max_history = 512;
 static bool is_running = true;
 
+static inline bool empty(const char *s)
+{
+    return (!s || s[0] == '\0');
+}
+
+static inline bool strmatch(const char *s1, const char *s2)
+{
+    if (!s1 || !s2) {
+        return false;
+    } else {
+        return (strcmp(s1, s2) == 0);
+    }
+}
+
 static int tun_alloc(char *dev)
 {
     struct ifreq ifr[1] = { 0 };
@@ -118,6 +132,69 @@ static int sockin(const char *ip, uint16_t port)
 }
 
 /**
+ * Returns IPv4 address associated with device name
+ *
+ * For example: get_device_ip4_addr("eth0") => "10.66.6.1"
+ *
+ * @param name  Name of network device.  For example "eth0"
+ * @return      IP of device or NULL.  You need to free() this.
+ */
+static char *get_device_ip4_addr(const char *devname)
+{
+    if (empty(devname)) {
+        return NULL;
+    }
+
+    int fd = -1;
+    char *res = NULL;
+    struct ifreq *ifr = NULL;
+    struct ifconf ifc[1] = { 0 };
+
+    if ((fd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
+        perror("socket(SOCK_DGRAM)");
+        goto finish;
+    }
+
+    /* find number of network interfaces */
+    ifc->ifc_ifcu.ifcu_req = NULL;
+    ifc->ifc_len = 0;
+    if (ioctl(fd, SIOCGIFCONF, ifc) < 0) {
+        perror("ioctl(SIOCGIFCONF) #1");
+        goto finish;
+    }
+    const int ifcnt = ifc->ifc_len / sizeof(struct ifreq);
+
+    if ((ifr = malloc(ifc->ifc_len * 2)) == NULL) {
+        goto finish;
+    }
+
+    /* request list all device names with their ips */
+    ifc->ifc_ifcu.ifcu_req = ifr;
+    if (ioctl(fd, SIOCGIFCONF, ifc) < 0) {
+        perror("ioctl(SIOCGIFCONF) #2");
+        goto finish;
+    }
+
+    int n;
+    for (n = 0; n < ifcnt; n++) {
+        const struct ifreq *r = &ifr[n];
+        const struct sockaddr_in *sin = (struct sockaddr_in *)&r->ifr_addr;
+        if (strmatch(r->ifr_name, devname)) {
+            const char *ip = inet_ntoa(sin->sin_addr);
+            if (!empty(ip)) {
+                res = strdup(ip);
+            }
+            break;
+        }
+    }
+
+finish:
+    if (fd != -1) close(fd);
+    if (ifr) free(ifr);
+    return res;
+}
+
+/**
  * Creates a udp socket for sending ip traffic to remote endpoint
  *
  * The socket is connected to the remote endpoint so you can use
@@ -151,7 +228,8 @@ static int sockout(const char *dev, const char *ip, uint16_t port)
     if (ioctl(fd, SIOCGIFINDEX, &ifr) < 0) {
         perror("ioctl(SIOCGIFINDEX) error");
     }
-    if (setsockopt(fd, SOL_SOCKET, SO_BINDTODEVICE, (void *)ifr, sizeof(ifr)) < 0) {
+    if (setsockopt(fd, SOL_SOCKET, SO_BINDTODEVICE,
+                   (void *)ifr, sizeof(ifr)) < 0) {
         perror("setsockopt(SO_BINDTODEVICE) error");
     }
 

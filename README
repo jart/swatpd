@@ -176,6 +176,8 @@ ToDo
   multiple wifi links rather than duplicating them.  For instance,
   right now we only support RAID1, we also want RAID0 and RAID5.
 
+* IPv6 support
+
 
 How to Crack WEP
 ================
