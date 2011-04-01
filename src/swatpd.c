@@ -276,7 +276,7 @@ int main(int argc, const char *argv[])
         j += 3;
     }
 
-    uint32_t seq = 0; /* current sequence id for egress frames */
+    uint32_t seq = rand(); /* current sequence id for egress frames */
     int seenidx = 0;
     int64_t seen[history_max]; /* history of ingress seqs to drop duplicates */
     for (n = 0; n < history_max; n++) {
