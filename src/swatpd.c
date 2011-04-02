@@ -126,11 +126,78 @@ static void run(const char *fmt, ...)
     }
 }
 
-static int sockin(const char *ip, uint16_t port)
+/**
+ * Returns IPv4 address associated with device name
+ *
+ * For example: get_device_ip4_addr("eth0") => "10.66.6.1"
+ *
+ * @param name  Name of network device.  For example "eth0"
+ * @return      IP of device or NULL.  You need to free() this.
+ */
+static int get_device_ip4_addr(const char *devname, char *ip, size_t ipamt)
+{
+    if (empty(devname) || ip == NULL || ipamt < INET_ADDRSTRLEN) {
+        return -1;
+    }
+
+    int fd = -1;
+    int res = -1;
+    struct ifreq *ifr = NULL;
+    struct ifconf ifc[1] = {{ 0 }};
+
+    if ((fd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
+        perror("socket(SOCK_DGRAM)");
+        goto finish;
+    }
+
+    /* find number of network interfaces */
+    ifc->ifc_ifcu.ifcu_req = NULL;
+    ifc->ifc_len = 0;
+    if (ioctl(fd, SIOCGIFCONF, ifc) < 0) {
+        perror("ioctl(SIOCGIFCONF) #1");
+        goto finish;
+    }
+    const int ifcnt = ifc->ifc_len / sizeof(struct ifreq);
+
+    if ((ifr = malloc(ifc->ifc_len * 2)) == NULL) {
+        goto finish;
+    }
+
+    /* request list all device names with their ips */
+    ifc->ifc_ifcu.ifcu_req = ifr;
+    if (ioctl(fd, SIOCGIFCONF, ifc) < 0) {
+        perror("ioctl(SIOCGIFCONF) #2");
+        goto finish;
+    }
+
+    int n;
+    for (n = 0; n < ifcnt; n++) {
+        const struct ifreq *r = &ifr[n];
+        const struct sockaddr_in *sin = (struct sockaddr_in *)&r->ifr_addr;
+        if (strmatch(r->ifr_name, devname)) {
+            inet_ntop(AF_INET, &(sin->sin_addr), ip, ipamt);
+            res = 0;
+            break;
+        }
+    }
+
+finish:
+    if (fd != -1) { close(fd); }
+    if (ifr) { free(ifr); }
+    return res;
+}
+
+static int sockin(const char *dev, uint16_t port)
 {
     int fd;
     if ((fd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
         perror("socket(SOCK_DGRAM) failed");
+        exit(1);
+    }
+
+    char ip[INET_ADDRSTRLEN];
+    if (get_device_ip4_addr(dev, ip, sizeof(ip)) < 0) {
+        fprintf(stderr, "device '%s' doesn't have an ip4 address\n", dev);
         exit(1);
     }
 
@@ -141,6 +208,17 @@ static int sockin(const char *ip, uint16_t port)
     if (bind(fd, (struct sockaddr *)sa, sizeof(sa)) < 0) {
         perror("bind(SOCK_DGRAM) error");
         exit(1);
+    }
+
+    struct ifreq ifr[1] = {{{{ 0 }}}};
+    snprintf(ifr->ifr_name, sizeof(ifr->ifr_name), "%s", dev);
+    if (ioctl(fd, SIOCGIFINDEX, &ifr) < 0) {
+        perror("ioctl(SIOCGIFINDEX) error");
+    } else {
+        if (setsockopt(fd, SOL_SOCKET, SO_BINDTODEVICE,
+                       (void *)ifr, sizeof(ifr)) < 0) {
+            perror("setsockopt(SO_BINDTODEVICE) error");
+        }
     }
 
     return fd;
@@ -187,10 +265,11 @@ static int sockout(const char *dev, const char *ip, uint16_t port)
     snprintf(ifr->ifr_name, sizeof(ifr->ifr_name), "%s", dev);
     if (ioctl(fd, SIOCGIFINDEX, &ifr) < 0) {
         perror("ioctl(SIOCGIFINDEX) error");
-    }
-    if (setsockopt(fd, SOL_SOCKET, SO_BINDTODEVICE,
-                   (void *)ifr, sizeof(ifr)) < 0) {
-        perror("setsockopt(SO_BINDTODEVICE) error");
+    } else {
+        if (setsockopt(fd, SOL_SOCKET, SO_BINDTODEVICE,
+                       (void *)ifr, sizeof(ifr)) < 0) {
+            perror("setsockopt(SO_BINDTODEVICE) error");
+        }
     }
 
     return fd;
@@ -252,16 +331,17 @@ int main(int argc, const char *argv[])
 
     const enum swatp_mode mode = swatp_mode(argv[1]);
     const char *linkaddr = argv[2];
-    const char *listen_ip = argv[3];
+    /* const char *listen_ip = argv[3]; */
     const uint16_t listen_port = (uint16_t)atoi(argv[4]);
 
     /* create tunnel device */
     char tundev[128] = { 0 };
     const int tunfd = tun_alloc(tundev);
     run("ip link set %s up", tundev);
-    run("ip link set %s mtu %d", tundev, mtu);
+    /* run("ip link set %s mtu %d", tundev, mtu); */
     run("ip addr add %s dev %s", linkaddr, tundev);
-    const int skin = sockin(listen_ip, listen_port);
+    const int skin1 = sockin("wlan0", listen_port);
+    const int skin2 = sockin("wlan1", listen_port);
 
     /* create array of transmit sockets */
     int j = 1 + 4;
@@ -309,7 +389,7 @@ int main(int argc, const char *argv[])
     signal(SIGINT, on_close);
     while (is_running) {
         fd_set rfds[1];
-        int maxfd = make_fd_set(rfds, tunfd, skin, -1);
+        int maxfd = make_fd_set(rfds, tunfd, skin1, skin2, -1);
         int rc = select(maxfd + 1, rfds, NULL, NULL, NULL);
         if (rc < 0) {
             if (errno == EINTR) {
@@ -352,9 +432,16 @@ int main(int argc, const char *argv[])
             }
         }
 
-        if (FD_ISSET(skin, rfds)) {
+        if (FD_ISSET(skin1, rfds) || FD_ISSET(skin2, rfds)) {
             /* data from remote endpoint, forward to our network */
-            const ssize_t amt = read(skin, pkt, maxamt);
+            ssize_t amt;
+            if (FD_ISSET(skin1, rfds)) {
+                printf("get skin1\n");
+                amt = read(skin1, pkt, maxamt);
+            } else {
+                printf("get skin2\n");
+                amt = read(skin2, pkt, maxamt);
+            }
             const ssize_t tunamt = amt - sizeof(struct swatp);
             /* const ssize_t ipamt = tunamt - sizeof(struct tunhdr); */
             if (amt <= 0) {
@@ -366,6 +453,7 @@ int main(int argc, const char *argv[])
                 const int64_t rseq = (int64_t)ntohl(hdr->seq);
                 for (n = 0; n < history_max; n++) {
                     if (rseq == seen[n]) {
+                        fprintf(stderr, "dropping dup seq %ld\n", rseq);
                         drop = true;
                         break;
                     }
