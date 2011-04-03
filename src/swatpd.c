@@ -63,7 +63,7 @@ static bool is_running = true;
 static const uint16_t proto_ipv4 = 0x0800;
 static const uint16_t proto_ipv6 = 0x86DD;
 
-static const int history_max = 512;
+static const int history_max = 1024 * 8;
 static const int mtu = (1500 - sizeof(struct iphdr) - sizeof(struct udphdr) -
                         sizeof(struct swatp) - sizeof(struct tunhdr));
 
