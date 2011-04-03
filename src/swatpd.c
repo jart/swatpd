@@ -326,7 +326,7 @@ int main(int argc, const char *argv[])
                 exit(1);
             }
             if (tunamt > tunminamt && ntohs(tunhdr->proto) == proto_ipv4) {
-                log_packet(" egress", iphdr);
+                /* log_packet(" egress", iphdr); */
                 hdr->magic = htonl(0xFeedABee);
                 hdr->type = htonl(0);
                 hdr->seq = htonl(++seq);
@@ -374,7 +374,7 @@ int main(int argc, const char *argv[])
                     if (++seenidx == history_max) {
                         seenidx = 0;
                     }
-                    log_packet("ingress", iphdr);
+                    /* log_packet("ingress", iphdr); */
                     write(tunfd, tunpkt, tunamt);
                 }
             }
