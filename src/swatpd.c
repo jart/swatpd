@@ -257,7 +257,7 @@ int main(int argc, const char *argv[])
     char tundev[128] = { 0 };
     const int tunfd = tun_alloc(tundev);
     run("ip link set %s up", tundev);
-    /* run("ip link set %s mtu %d", tundev, mtu); */
+    run("ip link set %s mtu %d", tundev, mtu);
     run("ip addr add %s dev %s", tun_cidr, tundev);
     const int skin = sockin(listen_port);
 
