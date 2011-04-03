@@ -17,6 +17,7 @@
 #include <stdio.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <sched.h>
 #include <stdlib.h>
 #include <stdarg.h>
 #include <stdint.h>
@@ -28,6 +29,7 @@
 #include <sys/time.h>
 #include <sys/wait.h>
 #include <sys/stat.h>
+#include <sys/mman.h>
 #include <sys/ioctl.h>
 #include <sys/types.h>
 #include <arpa/inet.h>
@@ -242,10 +244,24 @@ static enum swatp_mode swatp_mode(const char *smode)
     }
 }
 
+void realtime()
+{
+    /* the highest scheduling priority linux will allow */
+    struct sched_param tp[1];
+    assert(sched_getparam(0, tp) == 0);
+    tp->sched_priority = 99;
+    if (sched_setscheduler(0, SCHED_FIFO, tp) < 0) {
+        perror("sched_setscheduler(SCHED_FIFO, MAX_PRIO) error");
+    }
+    /* prevent page faults by gobbling up ram */
+    if (mlockall(MCL_CURRENT) < 0) {
+        perror("mlockall(MCL_CURRENT) error");
+    }
+}
+
 int main(int argc, const char *argv[])
 {
     srand(time(NULL));
-
     assert(argc >= 1 + 3 + 3);
     assert((argc - (1 + 3)) % 3 == 0);
 
@@ -304,6 +320,7 @@ int main(int argc, const char *argv[])
     /* const int ipmaxamt = tunmaxamt - sizeof(struct tunhdr); */
     /* const int ipminamt = sizeof(struct iphdr); */
 
+    realtime();
     signal(SIGINT, on_close);
     while (is_running) {
         fd_set rfds[1];
