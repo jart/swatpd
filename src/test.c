@@ -1,3 +1,16 @@
+/*
+ * Send UDP Packet::
+ * 
+ *     echo hello | socat -4 -u - udp4:localhost:11443
+ *
+ * Listen for UDP on specific interface::
+ *
+ *     sudo socat - udp4-listen:11443,so-bindtodevice=wlan1
+ *
+ *
+ *     
+ *
+ */ 
 
 #include <time.h>
 #include <stdio.h>
@@ -93,10 +106,13 @@ static int get_device_ip4_addr(const char *devname, char *ip, size_t ipamt)
     int n;
     for (n = 0; n < ifcnt; n++) {
         const struct ifreq *r = &ifr[n];
-        const struct sockaddr_in *sin = (struct sockaddr_in *)&r->ifr_addr;
+        const struct sockaddr_in *sin = (struct sockaddr_in *)&(r->ifr_addr);
         if (strmatch(r->ifr_name, devname)) {
-            inet_ntop(AF_INET, &(sin->sin_addr), ip, ipamt);
-            res = 0;
+            if (inet_ntop(AF_INET, &(sin->sin_addr), ip, ipamt) == NULL) {
+                perror("inet_ntop() error");
+            } else {
+                res = 0;
+            }
             break;
         }
     }
@@ -123,15 +139,15 @@ static int sockin(const char *dev, uint16_t port)
         exit(1);
     }
 
-    printf("bind %s %s %d\n", dev, ip, port);
-
     snprintf(ip, sizeof(ip), "0.0.0.0");
+
+    printf("bind %s %s %d\n", dev, ip, port);
 
     {
         struct sockaddr_in sa[1] = {{ 0 }};
         sa->sin_family = AF_INET;
         sa->sin_port = htons(port);
-        if (inet_pton(AF_INET, ip, &(sa->sin_addr)) < 0) {
+        if (inet_pton(sa->sin_family, ip, &(sa->sin_addr)) < 0) {
             perror("bad connect address");
             exit(1);
         }
@@ -156,7 +172,7 @@ static int sockin(const char *dev, uint16_t port)
     /*     struct sockaddr_in sa[1] = {{ 0 }}; */
     /*     sa->sin_family = AF_INET; */
     /*     sa->sin_port = htons(port); */
-    /*     if (inet_pton(AF_INET, "66.55.144.147", &(sa->sin_addr)) < 0) { */
+    /*     if (inet_pton(sa->sin_family, "66.55.144.147", &(sa->sin_addr)) < 0) { */
     /*         perror("bad connect address"); */
     /*         exit(1); */
     /*     } */
@@ -171,50 +187,81 @@ static int sockin(const char *dev, uint16_t port)
     return fd;
 }
 
+static char *ipstr4(uint32_t addr)
+{
+    const socklen_t sz = INET_ADDRSTRLEN;
+    char *res = malloc(sz);
+    if (res) {
+        if (inet_ntop(AF_INET, &addr, res, sz) == NULL) {
+            perror("inet_ntop() error");
+            free(res);
+            res = NULL;
+        }
+    }
+    return res;
+}
+
+static void udpget(int fd)
+{
+    const size_t sz = 1024 * 64;
+    char buf[sz];
+    struct sockaddr_in from[1];
+    socklen_t fromsz = sizeof(from);
+    const int amt = recvfrom(fd, buf, sz, 0, from, &fromsz);
+    const int hlen = 0; /* sizeof(struct iphdr) + sizeof(struct udphdr); */
+    fflush(stdout);
+    printf("%s:%d sent: %.*s\n",
+           ipstr4(from->sin_addr.s_addr), ntohs(from->sin_port),
+           amt - hlen, buf + hlen);
+}
+
 int main(int argc, const char *argv[])
 {
-    {
-        const char *dev = "eth0";
-        char ip[INET_ADDRSTRLEN];
-        assert(get_device_ip4_addr(dev, ip, INET_ADDRSTRLEN) == 0);
-        printf("%s = %s\n", dev, ip);
-    }
-    {
-        const char *dev = "wlan0";
-        char ip[INET_ADDRSTRLEN];
-        assert(get_device_ip4_addr(dev, ip, INET_ADDRSTRLEN) == 0);
-        printf("%s = %s\n", dev, ip);
-    }
-    {
-        const char *dev = "wlan1";
-        char ip[INET_ADDRSTRLEN];
-        assert(get_device_ip4_addr(dev, ip, INET_ADDRSTRLEN) == 0);
-        printf("%s = %s\n", dev, ip);
-    }
+    /* const char *const devs[] = { "eth0", "wlan0", "wlan1" }; */
+    /* int n; */
+    /* for (n = 0; n < 3; n++) { */
+    /*     const char *const dev = devs[n]; */
+    /*     char ip[INET_ADDRSTRLEN]; */
+    /*     assert(get_device_ip4_addr(dev, ip, INET_ADDRSTRLEN) == 0); */
+    /*     printf("%s = %s\n", dev, ip); */
+    /* } */
 
     {
-        int fd = sockin("wlan0", 11443);
-        /* write(fd, "hello", 5); */
-        char buf[1024 * 64];
-        int amt = read(fd, buf, sizeof(buf));
-        int hlen = sizeof(struct iphdr) + sizeof(struct udphdr);
-        hlen = 0;
-        printf("got: %.*s\n", amt - hlen, buf + hlen);
+        const int fd = sockin("wlan0", 11443);
+        for (;;) { udpget(fd); }
         close(fd);
     }
 
-    printf("\n");
-
     {
-        int fd = sockin("wlan1", 11443);
-        /* write(fd, "hello", 5); */
-        char buf[1024 * 64];
-        int amt = read(fd, buf, sizeof(buf));
-        int hlen = sizeof(struct iphdr) + sizeof(struct udphdr);
-        hlen = 0;
-        printf("got: %.*s\n", amt - hlen, buf + hlen);
+        const int fd = sockin("wlan1", 11443);
+        /* for (;;) { udpget(fd); } */
+        udpget(fd);
         close(fd);
     }
+
+    /* { */
+    /*     const int fd = sockin("wlan0", 11443); */
+    /*     /\* write(fd, "hello", 5); *\/ */
+    /*     char buf[1024 * 64]; */
+    /*     for (n = 0; n < 2; n++) { */
+    /*         const int amt = read(fd, buf, sizeof(buf)); */
+    /*         const int hlen = 0; //sizeof(struct iphdr) + sizeof(struct udphdr); */
+    /*         printf("got: %.*s\n", amt - hlen, buf + hlen); */
+    /*     } */
+    /*     close(fd); */
+    /* } */
+
+    /* printf("\n"); */
+
+    /* { */
+    /*     const int fd = sockin("wlan1", 11443); */
+    /*     /\* write(fd, "hello", 5); *\/ */
+    /*     char buf[1024 * 64]; */
+    /*     const int amt = read(fd, buf, sizeof(buf)); */
+    /*     const int hlen = 0; //sizeof(struct iphdr) + sizeof(struct udphdr); */
+    /*     printf("got: %.*s\n", amt - hlen, buf + hlen); */
+    /*     close(fd); */
+    /* } */
 
     return 0;
 }

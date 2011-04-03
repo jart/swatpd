@@ -126,7 +126,7 @@ static void run(const char *fmt, ...)
     }
 }
 
-static int sockin(const char *ip, uint16_t port)
+static int sockin(uint16_t port)
 {
     int fd;
     if ((fd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
@@ -137,7 +137,7 @@ static int sockin(const char *ip, uint16_t port)
     struct sockaddr_in sa[1] = {{ 0 }};
     sa->sin_family = AF_INET;
     sa->sin_port = htons(port);
-    sa->sin_addr.s_addr = inet_addr(ip);
+    sa->sin_addr.s_addr = inet_addr("0.0.0.0");
     if (bind(fd, (struct sockaddr *)sa, sizeof(sa)) < 0) {
         perror("bind(SOCK_DGRAM) error");
         exit(1);
@@ -247,24 +247,23 @@ int main(int argc, const char *argv[])
 {
     srand(time(NULL));
 
-    assert(argc >= 1 + 4 + 3);
-    assert((argc - (1 + 4)) % 3 == 0);
+    assert(argc >= 1 + 3 + 3);
+    assert((argc - (1 + 3)) % 3 == 0);
 
     const enum swatp_mode mode = swatp_mode(argv[1]);
-    const char *linkaddr = argv[2];
-    const char *listen_ip = argv[3];
-    const uint16_t listen_port = (uint16_t)atoi(argv[4]);
+    const char *tun_cidr = argv[2];
+    const uint16_t listen_port = (uint16_t)atoi(argv[3]);
 
     /* create tunnel device */
     char tundev[128] = { 0 };
     const int tunfd = tun_alloc(tundev);
     run("ip link set %s up", tundev);
     run("ip link set %s mtu %d", tundev, mtu);
-    run("ip addr add %s dev %s", linkaddr, tundev);
-    const int skin = sockin(listen_ip, listen_port);
+    run("ip addr add %s dev %s", tun_cidr, tundev);
+    const int skin = sockin(listen_port);
 
     /* create array of transmit sockets */
-    int j = 1 + 4;
+    int j = 1 + 3;
     const int skouts_len = (argc - j) / 3;
     int skouts[skouts_len];
     int skouts_robin = 0; /* for fast mode */
