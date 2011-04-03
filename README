@@ -111,19 +111,19 @@ Here's a diagram::
        \/                                           ||
     24.2.2.20:31337 ==================================
 
-Run the following commands on server::
+Run the following commands on server as root::
 
     sysctl -w net.ipv4.ip_forward=1
     iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
-    swatpd reliable 10.4.4.2/24 31337 \
-        wlan0 6.6.6.6 31337 \
-        wlan1 6.6.6.6 31337
-
-Run the following commands on compy::
-
     swatpd reliable 10.4.4.1/24 31337 \
         eth0 24.1.1.10 31337 \
         eth0 24.2.2.20 31337
+
+Run the following commands on compy as root::
+
+    swatpd reliable 10.4.4.2/24 31337 \
+        wlan0 6.6.6.6 31337 \
+        wlan1 6.6.6.6 31337
     ip route change default via 10.4.4.1
     for f in /proc/sys/net/ipv4/conf/*/rp_filter; do
         echo 0 > $f
@@ -146,6 +146,11 @@ This is compy's ``/etc/network/interfaces`` file::
 
 Tips
 ====
+
+If you want downloads to go fast try using "fast" instead of
+"reliable" in the swatpd command.  This will round-robin load balance
+packets across your connections.  This might not be a good idea if
+your internet connections are the least bit unreliable.
 
 You'll probably want to configure dhcpcd to use OpenDNS to avoid both
 routers fighting over who gets to be the DNS server::
