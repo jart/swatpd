@@ -195,14 +195,14 @@ static int sockout(const char *dev, const char *ip, uint16_t port)
     return fd;
 }
 
-static void log_packet(const char *prefix, struct iphdr *iphdr)
-{
-    char ip_src[INET_ADDRSTRLEN];
-    char ip_dst[INET_ADDRSTRLEN];
-    inet_ntop(AF_INET, &(iphdr->saddr), ip_src, sizeof(ip_src));
-    inet_ntop(AF_INET, &(iphdr->daddr), ip_dst, sizeof(ip_dst));
-    printf("%s %s -> %s\n", prefix, ip_src, ip_dst);
-}
+/* static void log_packet(const char *prefix, struct iphdr *iphdr) */
+/* { */
+/*     char ip_src[INET_ADDRSTRLEN]; */
+/*     char ip_dst[INET_ADDRSTRLEN]; */
+/*     inet_ntop(AF_INET, &(iphdr->saddr), ip_src, sizeof(ip_src)); */
+/*     inet_ntop(AF_INET, &(iphdr->daddr), ip_dst, sizeof(ip_dst)); */
+/*     printf("%s %s -> %s\n", prefix, ip_src, ip_dst); */
+/* } */
 
 /**
  * Easier way to generate a set of file descriptors for select()
@@ -299,8 +299,8 @@ int main(int argc, const char *argv[])
     const int tunminamt = sizeof(struct tunhdr) + sizeof(struct iphdr);
 
     /* memory alias for ip packet */
-    uint8_t *ippkt = tunpkt + sizeof(struct tunhdr);
-    struct iphdr *iphdr = (struct iphdr *)ippkt;
+    /* uint8_t *ippkt = tunpkt + sizeof(struct tunhdr); */
+    /* struct iphdr *iphdr = (struct iphdr *)ippkt; */
     /* const int ipmaxamt = tunmaxamt - sizeof(struct tunhdr); */
     /* const int ipminamt = sizeof(struct iphdr); */
 
