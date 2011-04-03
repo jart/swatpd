@@ -125,6 +125,9 @@ Run the following commands on compy::
         eth0 24.1.1.10 31337 \
         eth0 24.2.2.20 31337
     ip route add default via 10.4.4.1 dev tun0 metric 90
+    for f in /proc/sys/net/ipv4/conf/*/rp_filter; do
+        echo 0 > $f
+    done
 
 This is compy's ``/etc/network/interfaces`` file::
 
