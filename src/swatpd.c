@@ -54,7 +54,6 @@ struct swatp {
 struct tunhdr {
     uint16_t flags;
     uint16_t proto;   /* http://en.wikipedia.org/wiki/EtherType */
-    uint32_t mystery;
 };
 
 static bool is_running = true;
@@ -200,8 +199,8 @@ static void log_packet(const char *prefix, struct iphdr *iphdr)
 {
     char ip_src[INET_ADDRSTRLEN];
     char ip_dst[INET_ADDRSTRLEN];
-    inet_ntop(AF_INET, &(iphdr->saddr) - 1, ip_src, sizeof(ip_src));
-    inet_ntop(AF_INET, &(iphdr->daddr) - 1, ip_dst, sizeof(ip_dst));
+    inet_ntop(AF_INET, &(iphdr->saddr), ip_src, sizeof(ip_src));
+    inet_ntop(AF_INET, &(iphdr->daddr), ip_dst, sizeof(ip_dst));
     printf("%s %s -> %s\n", prefix, ip_src, ip_dst);
 }
 
@@ -365,6 +364,7 @@ int main(int argc, const char *argv[])
                 const int64_t rseq = (int64_t)ntohl(hdr->seq);
                 for (n = 0; n < history_max; n++) {
                     if (rseq == seen[n]) {
+                        /* fprintf(stderr, "dropping dup seq %ld\n", rseq); */
                         drop = true;
                         break;
                     }
