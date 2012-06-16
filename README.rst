@@ -4,9 +4,9 @@
  swatpd
 ========
 
--------------------------------------------------
- Stolen WiFi Aggregate Tunneling Protocol Daemon
--------------------------------------------------
+------------------------------------------------
+ Stolen WiFi Aggregate Tunneling Protocol Dæmon
+------------------------------------------------
 
 :Author: Justine Tunney
 :Version: 0.1 pre-alpha
